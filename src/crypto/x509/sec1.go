@@ -97,26 +97,66 @@ func parseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key in
 	if k.Cmp(curveOrder) >= 0 {
 		return nil, errors.New("x509: invalid elliptic curve private key value")
 	}
-	priv := new(ecdsa.PrivateKey)
-	priv.Curve = curve
-	priv.D = k
 
-	privateKey := make([]byte, (curveOrder.BitLen()+7)/8)
-
-	// Some private keys have leading zero padding. This is invalid
-	// according to [SEC1], but this code will ignore it.
-	for len(privKey.PrivateKey) > len(privateKey) {
-		if privKey.PrivateKey[0] != 0 {
-			return nil, errors.New("x509: invalid private key length")
+	switch curve {
+	case elliptic.P256Sm2():
+		k := new(big.Int).SetBytes(privKey.PrivateKey)
+		curveOrder := curve.Params().N
+		if k.Cmp(curveOrder) >= 0 {
+			return nil, errors.New("x509: invalid elliptic curve private key value")
 		}
-		privKey.PrivateKey = privKey.PrivateKey[1:]
+		priv := new(sm.PrivateKey)
+		priv.Curve = curve
+		priv.D = k
+
+		privateKey := make([]byte, (curveOrder.BitLen()+7)/8)
+
+		// Some private keys have leading zero padding. This is invalid
+		// according to [SEC1], but this code will ignore it.
+		for len(privKey.PrivateKey) > len(privateKey) {
+			if privKey.PrivateKey[0] != 0 {
+				return nil, errors.New("x509: invalid private key length")
+			}
+			privKey.PrivateKey = privKey.PrivateKey[1:]
+		}
+
+		// Some private keys remove all leading zeros, this is also invalid
+		// according to [SEC1] but since OpenSSL used to do this, we ignore
+		// this too.
+		copy(privateKey[len(privateKey)-len(privKey.PrivateKey):], privKey.PrivateKey)
+		priv.X, priv.Y = curve.ScalarBaseMult(privateKey)
+
+		return priv, nil
+
+	case elliptic.P224(), elliptic.P256(), elliptic.P384(), elliptic.P521():
+		k := new(big.Int).SetBytes(privKey.PrivateKey)
+		curveOrder := curve.Params().N
+		if k.Cmp(curveOrder) >= 0 {
+			return nil, errors.New("x509: invalid elliptic curve private key value")
+		}
+		priv := new(ecdsa.PrivateKey)
+		priv.Curve = curve
+		priv.D = k
+
+		privateKey := make([]byte, (curveOrder.BitLen()+7)/8)
+
+		// Some private keys have leading zero padding. This is invalid
+		// according to [SEC1], but this code will ignore it.
+		for len(privKey.PrivateKey) > len(privateKey) {
+			if privKey.PrivateKey[0] != 0 {
+				return nil, errors.New("x509: invalid private key length")
+			}
+			privKey.PrivateKey = privKey.PrivateKey[1:]
+		}
+
+		// Some private keys remove all leading zeros, this is also invalid
+		// according to [SEC1] but since OpenSSL used to do this, we ignore
+		// this too.
+		copy(privateKey[len(privateKey)-len(privKey.PrivateKey):], privKey.PrivateKey)
+		priv.X, priv.Y = curve.ScalarBaseMult(privateKey)
+
+		return priv, nil
+	default:
+		return nil, errors.New("x509: invalid private key curve param")
 	}
-
-	// Some private keys remove all leading zeros, this is also invalid
-	// according to [SEC1] but since OpenSSL used to do this, we ignore
-	// this too.
-	copy(privateKey[len(privateKey)-len(privKey.PrivateKey):], privKey.PrivateKey)
-	priv.X, priv.Y = curve.ScalarBaseMult(privateKey)
-
-	return priv, nil
 }

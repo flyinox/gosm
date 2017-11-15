@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"testing"
+	"crypto/sm/sm3"
 )
 
 func TestSignVerify(t *testing.T) {
@@ -55,26 +56,30 @@ func BenchmarkSign(b *testing.B) {
 	}
 }
 
-//func TestSignAndVerify(t *testing.T) {
-//	priv, _ := GenerateKey(rand.Reader)
-//
-//	hashed := []byte("testintestintestintestintestintestinggggggtesting")
-//	r, s, err := Sign(rand.Reader, priv, hashed)
-//	if err != nil {
-//		t.Errorf(" error signing: %s", err)
-//		return
-//	}
-//
-//	if !Verify(&priv.PublicKey, hashed, r, s) {
-//		t.Errorf(" Verify failed")
-//	}
-//
-//	//hashed[0] ^= 0xff
-//	hashed[0] = 0x53
-//	for i := 0; i < len(hashed); i++ {
-//		hashed[i] = byte(i)
-//	}
-//	if Verify(&priv.PublicKey, hashed, r, s) {
-//		t.Errorf("Verify always works!")
-//	}
-//}
+func TestSignAndVerify(t *testing.T) {
+	priv, _ := GenerateKey(rand.Reader)
+
+	origin := []byte("testintestintestintestintestintestinggggggtesting")
+	hash := sm3.New()
+	hash.Write(origin)
+	hashed := hash.Sum(nil)
+	r, s, err := Sign(rand.Reader, priv, hashed)
+	if err != nil {
+		t.Errorf(" error signing: %s", err)
+		return
+	}
+
+	if !Verify(&priv.PublicKey, hashed, r, s) {
+		t.Errorf(" Verify failed")
+	}
+
+	//hashed[0] ^= 0xff
+	hashed[0] = 0x53
+	for i := 0; i < len(hashed); i++ {
+		hashed[i] = byte(i)
+	}
+	if Verify(&priv.PublicKey, hashed, r, s) {
+		t.Errorf("Verify always works!")
+	}
+}
+

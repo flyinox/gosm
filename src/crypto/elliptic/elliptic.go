@@ -342,6 +342,7 @@ func initAll() {
 	initP256()
 	initP384()
 	initP521()
+	initP256Sm2()
 }
 
 func initP384() {

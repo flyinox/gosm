@@ -146,7 +146,7 @@ func Verify(pub *PublicKey, hash []byte, r, s *big.Int) bool {
 	x12, y12 := pub.Curve.ScalarBaseMult(s.Bytes())
 	x1, _ := pub.Curve.Add(x11, y11, x12, y12)
 	x := new(big.Int).Add(e, x1)
-	x.Mod(r, n)
+	x = x.Mod(x, n)
 
 	return x.Cmp(r) == 0
 }
