@@ -332,9 +332,11 @@ var pkgDeps = map[string][]string{
 	"crypto/sha1":   {"L3"},
 	"crypto/sha256": {"L3"},
 	"crypto/sha512": {"L3"},
+	"crypto/sm/sm3": {"L3"},
 
 	"CRYPTO": {
 		"crypto/aes",
+		"crypto/sm/sm4",
 		"crypto/des",
 		"crypto/hmac",
 		"crypto/md5",
@@ -342,6 +344,7 @@ var pkgDeps = map[string][]string{
 		"crypto/sha1",
 		"crypto/sha256",
 		"crypto/sha512",
+		"crypto/sm/sm3",
 		"golang_org/x/crypto/chacha20poly1305",
 		"golang_org/x/crypto/curve25519",
 		"golang_org/x/crypto/poly1305",
@@ -356,6 +359,7 @@ var pkgDeps = map[string][]string{
 	// We could avoid some of the fmt, but math/big imports fmt anyway.
 	"crypto/dsa":      {"L4", "CRYPTO", "math/big"},
 	"crypto/ecdsa":    {"L4", "CRYPTO", "crypto/elliptic", "math/big", "encoding/asn1"},
+	"crypto/sm/sm2":    {"L4", "CRYPTO", "crypto/elliptic", "math/big", "encoding/asn1"},
 	"crypto/elliptic": {"L4", "CRYPTO", "math/big"},
 	"crypto/rsa":      {"L4", "CRYPTO", "crypto/rand", "math/big"},
 
@@ -363,6 +367,7 @@ var pkgDeps = map[string][]string{
 		"CRYPTO",
 		"crypto/dsa",
 		"crypto/ecdsa",
+		"crypto/sm/sm2",
 		"crypto/elliptic",
 		"crypto/rand",
 		"crypto/rsa",

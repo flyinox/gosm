@@ -19,6 +19,7 @@ import (
 	_ "crypto/sha1"
 	_ "crypto/sha256"
 	_ "crypto/sha512"
+	sm "crypto/sm/sm2"
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
@@ -62,6 +63,19 @@ func ParsePKIXPublicKey(derBytes []byte) (pub interface{}, err error) {
 
 func marshalPublicKey(pub interface{}) (publicKeyBytes []byte, publicKeyAlgorithm pkix.AlgorithmIdentifier, err error) {
 	switch pub := pub.(type) {
+	case *sm.PublicKey:
+		publicKeyBytes = elliptic.Marshal(pub.Curve, pub.X, pub.Y)
+		oid, ok := oidFromNamedCurve(pub.Curve)
+		if !ok {
+			return nil, pkix.AlgorithmIdentifier{}, errors.New("x509: unsupported elliptic curve")
+		}
+		publicKeyAlgorithm.Algorithm = oidPublicKeySM2
+		var paramBytes []byte
+		paramBytes, err = asn1.Marshal(oid)
+		if err != nil {
+			return
+		}
+		publicKeyAlgorithm.Parameters.FullBytes = paramBytes
 	case *rsa.PublicKey:
 		publicKeyBytes, err = asn1.Marshal(pkcs1PublicKey{
 			N: pub.N,
@@ -149,6 +163,8 @@ type dsaSignature struct {
 
 type ecdsaSignature dsaSignature
 
+type sm2Signature dsaSignature
+
 type validity struct {
 	NotBefore, NotAfter time.Time
 }
@@ -183,6 +199,9 @@ const (
 	SHA256WithRSAPSS
 	SHA384WithRSAPSS
 	SHA512WithRSAPSS
+	SM2WithSM3
+	SM2WithSHA1
+	SM2WithSHA256
 )
 
 func (algo SignatureAlgorithm) isRSAPSS() bool {
@@ -210,6 +229,9 @@ var algoName = [...]string{
 	ECDSAWithSHA256:  "ECDSA-SHA256",
 	ECDSAWithSHA384:  "ECDSA-SHA384",
 	ECDSAWithSHA512:  "ECDSA-SHA512",
+	SM2WithSM3:       "SM2-SM3",
+	SM2WithSHA1:      "SM2-SHA1",
+	SM2WithSHA256:    "SM2-SHA256",
 }
 
 func (algo SignatureAlgorithm) String() string {
@@ -226,6 +248,7 @@ const (
 	RSA
 	DSA
 	ECDSA
+	SM2
 )
 
 // OIDs for signature algorithms
@@ -303,6 +326,11 @@ var (
 	// but it's specified by ISO. Microsoft's makecert.exe has been known
 	// to produce certificates with this OID.
 	oidISOSignatureSHA1WithRSA = asn1.ObjectIdentifier{1, 3, 14, 3, 2, 29}
+
+	//oid gm
+	oidSignatureSM2WithSM3    = asn1.ObjectIdentifier{1, 2, 156, 10197, 1, 501}
+	oidSignatureSM2WithSHA1   = asn1.ObjectIdentifier{1, 2, 156, 10197, 1, 502}
+	oidSignatureSM2WithSHA256 = asn1.ObjectIdentifier{1, 2, 156, 10197, 1, 503}
 )
 
 var signatureAlgorithmDetails = []struct {
@@ -327,6 +355,9 @@ var signatureAlgorithmDetails = []struct {
 	{ECDSAWithSHA256, oidSignatureECDSAWithSHA256, ECDSA, crypto.SHA256},
 	{ECDSAWithSHA384, oidSignatureECDSAWithSHA384, ECDSA, crypto.SHA384},
 	{ECDSAWithSHA512, oidSignatureECDSAWithSHA512, ECDSA, crypto.SHA512},
+	{SM2WithSM3, oidSignatureSM2WithSM3, SM2, crypto.SM3},
+	{SM2WithSHA1, oidSignatureSM2WithSHA1, SM2, crypto.SHA1},
+	{SM2WithSHA256, oidSignatureSM2WithSHA256, SM2, crypto.SHA256},
 }
 
 // pssParameters reflects the parameters in an AlgorithmIdentifier that
@@ -454,10 +485,13 @@ var (
 	oidPublicKeyRSA   = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
 	oidPublicKeyDSA   = asn1.ObjectIdentifier{1, 2, 840, 10040, 4, 1}
 	oidPublicKeyECDSA = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}
+	oidPublicKeySM2   = asn1.ObjectIdentifier{1, 2, 156, 10197, 2, 1} //TODO this value is specified no where, need to confirm next
 )
 
 func getPublicKeyAlgorithmFromOID(oid asn1.ObjectIdentifier) PublicKeyAlgorithm {
 	switch {
+	case oid.Equal(oidPublicKeySM2):
+		return SM2
 	case oid.Equal(oidPublicKeyRSA):
 		return RSA
 	case oid.Equal(oidPublicKeyDSA):
@@ -489,10 +523,13 @@ var (
 	oidNamedCurveP256 = asn1.ObjectIdentifier{1, 2, 840, 10045, 3, 1, 7}
 	oidNamedCurveP384 = asn1.ObjectIdentifier{1, 3, 132, 0, 34}
 	oidNamedCurveP521 = asn1.ObjectIdentifier{1, 3, 132, 0, 35}
+	oidNamedCurveP256SM2 = asn1.ObjectIdentifier{1, 2, 156, 10197, 1, 301}
 )
 
 func namedCurveFromOID(oid asn1.ObjectIdentifier) elliptic.Curve {
 	switch {
+	case oid.Equal(oidNamedCurveP256SM2):
+		return elliptic.P256Sm2()
 	case oid.Equal(oidNamedCurveP224):
 		return elliptic.P224()
 	case oid.Equal(oidNamedCurveP256):
@@ -507,6 +544,8 @@ func namedCurveFromOID(oid asn1.ObjectIdentifier) elliptic.Curve {
 
 func oidFromNamedCurve(curve elliptic.Curve) (asn1.ObjectIdentifier, bool) {
 	switch curve {
+	case elliptic.P256Sm2():
+		return oidNamedCurveP256SM2, true
 	case elliptic.P224():
 		return oidNamedCurveP224, true
 	case elliptic.P256():
@@ -829,9 +868,11 @@ func checkSignature(algo SignatureAlgorithm, signed, signature []byte, publicKey
 	var hashType crypto.Hash
 
 	switch algo {
-	case SHA1WithRSA, DSAWithSHA1, ECDSAWithSHA1:
+	case SM2WithSM3:
+		hashType = crypto.SM3
+	case SHA1WithRSA, DSAWithSHA1, ECDSAWithSHA1, SM2WithSHA1:
 		hashType = crypto.SHA1
-	case SHA256WithRSA, SHA256WithRSAPSS, DSAWithSHA256, ECDSAWithSHA256:
+	case SHA256WithRSA, SHA256WithRSAPSS, DSAWithSHA256, ECDSAWithSHA256, SM2WithSHA256:
 		hashType = crypto.SHA256
 	case SHA384WithRSA, SHA384WithRSAPSS, ECDSAWithSHA384:
 		hashType = crypto.SHA384
@@ -852,6 +893,21 @@ func checkSignature(algo SignatureAlgorithm, signed, signature []byte, publicKey
 	digest := h.Sum(nil)
 
 	switch pub := publicKey.(type) {
+	case *sm.PublicKey:
+		sm2Sig := new(sm2Signature)
+		if rest, err := asn1.Unmarshal(signature, sm2Sig); err != nil {
+			return err
+		} else if len(rest) != 0 {
+			return errors.New("x509: trailing data after sm2 signature")
+		}
+		if sm2Sig.R.Sign() <= 0 || sm2Sig.S.Sign() <= 0 {
+			return errors.New("x509: sm2 signature contained zero or negative values")
+		}
+		if !sm.Verify(pub, digest, sm2Sig.R, sm2Sig.S) {
+			return errors.New("x509: sm2 verification failure")
+		}
+
+		return
 	case *rsa.PublicKey:
 		if algo.isRSAPSS() {
 			return rsa.VerifyPSS(pub, hashType, digest, signature, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash})
@@ -944,6 +1000,30 @@ type distributionPointName struct {
 func parsePublicKey(algo PublicKeyAlgorithm, keyData *publicKeyInfo) (interface{}, error) {
 	asn1Data := keyData.PublicKey.RightAlign()
 	switch algo {
+	case SM2:
+		paramsData := keyData.Algorithm.Parameters.FullBytes
+		namedCurveOID := new(asn1.ObjectIdentifier)
+		rest, err := asn1.Unmarshal(paramsData, namedCurveOID)
+		if err != nil {
+			return nil, err
+		}
+		if len(rest) != 0 {
+			return nil, errors.New("x509: trailing data after SM2 parameters")
+		}
+		namedCurve := namedCurveFromOID(*namedCurveOID)
+		if namedCurve == nil {
+			return nil, errors.New("x509: unsupported SM2 elliptic curve")
+		}
+		x, y := elliptic.Unmarshal(namedCurve, asn1Data)
+		if x == nil {
+			return nil, errors.New("x509: failed to unmarshal elliptic curve point")
+		}
+		pub := &sm.PublicKey{
+			Curve: namedCurve,
+			X:     x,
+			Y:     y,
+		}
+		return pub, nil
 	case RSA:
 		// RSA public keys must have a NULL in the parameters
 		// (https://tools.ietf.org/html/rfc3279#section-2.3.1).
@@ -1670,6 +1750,17 @@ func signingParamsForPublicKey(pub interface{}, requestedSigAlgo SignatureAlgori
 	var pubType PublicKeyAlgorithm
 
 	switch pub := pub.(type) {
+	case *sm.PublicKey:
+		pubType = SM2
+		switch pub.Curve {
+		case elliptic.P256Sm2():
+			hashFunc = crypto.SM3
+			sigAlgo.Algorithm = oidSignatureSM2WithSM3
+			//hashFunc = crypto.SHA256
+			//sigAlgo.Algorithm = oidSignatureSM2WithSHA256
+		default:
+			err = errors.New("x509: SM2 unknown elliptic curve")
+		}
 	case *rsa.PublicKey:
 		pubType = RSA
 		hashFunc = crypto.SHA256
@@ -1694,7 +1785,7 @@ func signingParamsForPublicKey(pub interface{}, requestedSigAlgo SignatureAlgori
 		}
 
 	default:
-		err = errors.New("x509: only RSA and ECDSA keys supported")
+		err = errors.New("x509: only SM2, RSA and ECDSA keys supported")
 	}
 
 	if err != nil {

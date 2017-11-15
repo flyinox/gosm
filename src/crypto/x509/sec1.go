@@ -7,6 +7,7 @@ package x509
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	sm "crypto/sm/sm2"
 	"encoding/asn1"
 	"errors"
 	"fmt"
@@ -29,26 +30,42 @@ type ecPrivateKey struct {
 }
 
 // ParseECPrivateKey parses an ASN.1 Elliptic Curve Private Key Structure.
-func ParseECPrivateKey(der []byte) (*ecdsa.PrivateKey, error) {
+func ParseECPrivateKey(der []byte) (interface{}, error) {
 	return parseECPrivateKey(nil, der)
 }
 
 // MarshalECPrivateKey marshals an EC private key into ASN.1, DER format.
-func MarshalECPrivateKey(key *ecdsa.PrivateKey) ([]byte, error) {
-	oid, ok := oidFromNamedCurve(key.Curve)
+func MarshalECPrivateKey(key interface{}) ([]byte, error) {
+	var curve elliptic.Curve
+	var x, y *big.Int
+	var privateKeyBytes []byte
+
+	switch key := key.(type) {
+	case *ecdsa.PrivateKey:
+		privateKeyBytes = key.D.Bytes()
+		curve = key.Curve
+		x = key.X
+		y = key.Y
+	case *sm.PrivateKey:
+		privateKeyBytes = key.D.Bytes()
+		curve = key.Curve
+		x = key.X
+		y = key.Y
+	}
+	oid, ok := oidFromNamedCurve(curve)
 	if !ok {
 		return nil, errors.New("x509: unknown elliptic curve")
 	}
 
-	privateKeyBytes := key.D.Bytes()
-	paddedPrivateKey := make([]byte, (key.Curve.Params().N.BitLen()+7)/8)
+	//privateKeyBytes := key.D.Bytes()
+	paddedPrivateKey := make([]byte, (curve.Params().N.BitLen()+7)/8)
 	copy(paddedPrivateKey[len(paddedPrivateKey)-len(privateKeyBytes):], privateKeyBytes)
 
 	return asn1.Marshal(ecPrivateKey{
 		Version:       1,
 		PrivateKey:    paddedPrivateKey,
 		NamedCurveOID: oid,
-		PublicKey:     asn1.BitString{Bytes: elliptic.Marshal(key.Curve, key.X, key.Y)},
+		PublicKey:     asn1.BitString{Bytes: elliptic.Marshal(curve, x, y)},
 	})
 }
 
@@ -56,7 +73,7 @@ func MarshalECPrivateKey(key *ecdsa.PrivateKey) ([]byte, error) {
 // The OID for the named curve may be provided from another source (such as
 // the PKCS8 container) - if it is provided then use this instead of the OID
 // that may exist in the EC private key structure.
-func parseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key *ecdsa.PrivateKey, err error) {
+func parseECPrivateKey(namedCurveOID *asn1.ObjectIdentifier, der []byte) (key interface{}, err error) {
 	var privKey ecPrivateKey
 	if _, err := asn1.Unmarshal(der, &privKey); err != nil {
 		return nil, errors.New("x509: failed to parse EC private key: " + err.Error())
